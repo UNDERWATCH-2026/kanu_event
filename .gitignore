@@ -1,0 +1,15 @@
+# 민감 정보
+credentials.json
+config.env
+
+# 날짜별 스크린샷 폴더 (용량이 크므로 Git 제외, Actions 아티팩트로 보관)
+data/????-??-??/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# 로그
+logs/
