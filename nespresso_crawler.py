@@ -92,28 +92,24 @@ async def extract_title(slide) -> str:
 
 
 async def click_and_capture_url(page: Page, btn) -> str:
-    """버튼 클릭 → 이동 URL 캡처 → 홈으로 복귀"""
+    """버튼 클릭 → URL 변경 감지(commit) → 홈 재접속"""
     try:
-        async with page.expect_navigation(timeout=8_000):
-            await btn.click(timeout=3_000)
+        # wait_until="commit" : URL이 바뀌는 순간 즉시 감지 (페이지 완전 로드 불필요)
+        async with page.expect_navigation(timeout=20_000, wait_until="commit"):
+            await btn.click(timeout=5_000)
         url = page.url
-        await page.go_back(wait_until="domcontentloaded", timeout=15_000)
-        await page.wait_for_timeout(1_200)
-        # 홈 URL이면 의미 없는 결과
-        if url.rstrip("/") == TARGET_URL.rstrip("/"):
-            return ""
-        return url
     except Exception:
-        await page.wait_for_timeout(600)
+        # 20초 내 URL 변화 없음 → 현재 URL 체크
+        await page.wait_for_timeout(1_000)
         url = page.url
-        if url.rstrip("/") != TARGET_URL.rstrip("/"):
-            try:
-                await page.go_back(wait_until="domcontentloaded", timeout=15_000)
-                await page.wait_for_timeout(1_200)
-            except Exception:
-                pass
-            return url
+
+    if url.rstrip("/") == TARGET_URL.rstrip("/"):
         return ""
+
+    # 홈으로 직접 재접속 (go_back 미사용 — Splide 완전 재초기화 보장)
+    await page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30_000)
+    await page.wait_for_timeout(1_500)
+    return url
 
 
 async def dismiss_cookie_popup(page: Page):
@@ -205,16 +201,22 @@ async def crawl() -> list:
         for i, r in enumerate(raw):
             cta_url = ""
             try:
+                # 홈 복귀 후 캐러셀·슬라이드 버튼이 클릭 가능할 때까지 대기
+                await page.wait_for_selector(
+                    ".splide__slide:not(.splide__slide--clone) button",
+                    state="visible",
+                    timeout=10_000,
+                )
+                await page.wait_for_timeout(800)   # JS 이벤트 바인딩 여유
+
                 slide = slides.nth(i)
                 btn = slide.locator("button,a").first
                 if await btn.count() > 0:
                     cta_url = await click_and_capture_url(page, btn)
-                    # 복귀 후 캐러셀이 없으면 홈으로 재접속
-                    try:
-                        await page.wait_for_selector(".splide", timeout=8_000)
-                    except Exception:
-                        await page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30_000)
+                    # 실패 시 1회 재시도 (홈 재접속 후 버튼 재탐색)
+                    if not cta_url:
                         await page.wait_for_timeout(2_000)
+                        cta_url = await click_and_capture_url(page, slide.locator("button,a").first)
             except Exception as e:
                 print(f"  [{i}] URL 추적 실패: {e}")
 
