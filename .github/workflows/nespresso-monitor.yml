@@ -1,0 +1,67 @@
+name: Nespresso 이벤트 카드 모니터
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 매일 오전 9시 KST (= 00:00 UTC, UTC+9)
+  workflow_dispatch:        # GitHub Actions 페이지에서 수동 실행 버튼
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. 코드 체크아웃 ───────────────────────────────────────────────────
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Python 설정 ────────────────────────────────────────────────────
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ── 3. 의존성 설치 ────────────────────────────────────────────────────
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: Playwright Chromium 설치
+        run: playwright install chromium --with-deps
+
+      # ── 4. Google 인증 파일 생성 ──────────────────────────────────────────
+      - name: Google 인증 파일 생성
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
+
+      # ── 5. 모니터 실행 ────────────────────────────────────────────────────
+      - name: 모니터 실행
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GOOGLE_CREDENTIALS_PATH: credentials.json
+          DATA_DIR: data
+          HEADLESS: "true"
+        run: python nespresso_monitor.py
+
+      # ── 6. 스크린샷 아티팩트 업로드 (30일 보관) ──────────────────────────
+      - name: 스크린샷 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_id }}-${{ github.run_attempt }}
+          path: data/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # ── 7. last_results.json 커밋 (다음 실행 비교용) ─────────────────────
+      - name: 결과 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/last_results.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "커밋할 변경사항 없음"
+          else
+            git commit -m "chore: 모니터 결과 저장 $(date +'%Y-%m-%d')"
+            git push
+          fi

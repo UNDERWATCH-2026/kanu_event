@@ -1,0 +1,42 @@
+[
+  {
+    "title": "NEW 버츄오 업 9만원 할인",
+    "image": "https://cms.nespresso.com/kr/sites/default/files/2026-03/small%20banner_376x540_0.jpg",
+    "cta": {
+      "text": "버츄오 업 자세히 보기",
+      "url": "https://www.nespresso.com/kr/ko/order/machines/vertuo/vertuo-up-ink-black"
+    }
+  },
+  {
+    "title": "NEW 시즌 한정 피스타치오 바닐라향 커피",
+    "image": "https://cms.nespresso.com/kr/sites/default/files/2026-03/260309-Small-Card-Banner_PC_376x540px.jpg",
+    "cta": {
+      "text": "자세히 보기",
+      "url": "https://www.nespresso.com/kr/ko/order/capsules/original"
+    }
+  },
+  {
+    "title": "삼라 오리진 한정판 머신",
+    "image": "https://cms.nespresso.com/kr/sites/default/files/2026-03/hero%20banner%20MO%20750x550-1.png",
+    "cta": {
+      "text": "버츄오 팝+ 삼라 오리진 자세히보기",
+      "url": "https://www.nespresso.com/kr/ko/order/machines/vertuo/le-samra-origins-green"
+    }
+  },
+  {
+    "title": "공식 홈페이지 한정",
+    "image": "https://cms.nespresso.com/kr/sites/default/files/2026-02/260130-Drupal_376x540_0.png",
+    "cta": {
+      "text": "버츄오 팝+ 홈카페 패키지 자세히 보기",
+      "url": ""
+    }
+  },
+  {
+    "title": "NEW 메종 컬렉션",
+    "image": "https://cms.nespresso.com/kr/sites/default/files/2025-10/251104-Maison%20Small-Card-Banner_PC_376x540px.jpg",
+    "cta": {
+      "text": "메종 컬렉션",
+      "url": ""
+    }
+  }
+]
