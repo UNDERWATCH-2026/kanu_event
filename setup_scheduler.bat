@@ -17,16 +17,17 @@ set "TASK_NAME=NespressoMonitor"
 :: 로그 폴더 생성
 if not exist "%SCRIPT_DIR%logs" mkdir "%SCRIPT_DIR%logs"
 
-:: 기존 작업 삭제 후 재등록
-schtasks /delete /tn "%TASK_NAME%" /f > nul 2>&1
-
-schtasks /create ^
-  /tn "%TASK_NAME%" ^
-  /tr "\"%BAT_FILE%\"" ^
-  /sc daily ^
-  /st 09:00 ^
-  /rl highest ^
-  /f
+:: PowerShell로 등록 (StartWhenAvailable 지원)
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$action  = New-ScheduledTaskAction -Execute '\"%SCRIPT_DIR%run.bat\"';" ^
+  "$trigger = New-ScheduledTaskTrigger -Daily -At '09:00';" ^
+  "$settings = New-ScheduledTaskSettingsSet" ^
+  "  -StartWhenAvailable" ^
+  "  -ExecutionTimeLimit (New-TimeSpan -Hours 2)" ^
+  "  -MultipleInstances IgnoreNew;" ^
+  "Unregister-ScheduledTask -TaskName '%TASK_NAME%' -Confirm:$false -ErrorAction SilentlyContinue;" ^
+  "Register-ScheduledTask -TaskName '%TASK_NAME%' -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null;" ^
+  "Write-Host 'OK'"
 
 if %ERRORLEVEL% == 0 (
     echo.
@@ -34,6 +35,7 @@ if %ERRORLEVEL% == 0 (
     echo  [성공] 예약 작업 등록 완료
     echo  작업 이름 : %TASK_NAME%
     echo  실행 시간 : 매일 오전 09:00
+    echo  놓친 실행 : 컴퓨터 켜질 때 즉시 실행 (하루 1회)
     echo  스크립트  : %BAT_FILE%
     echo ──────────────────────────────────────────────
     echo.

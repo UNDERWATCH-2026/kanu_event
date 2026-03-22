@@ -16,6 +16,8 @@ import gspread
 import requests as http_req
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from playwright.async_api import async_playwright
 
 from nespresso_crawler import crawl
@@ -28,11 +30,12 @@ if sys.platform == "win32":
 _BASE = Path(__file__).parent
 load_dotenv(_BASE / "config.env")
 
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-GOOGLE_CREDS_PATH = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", str(_BASE / "credentials.json")))
-SPREADSHEET_ID    = "1yedWS5jNzsd7C0W6f6t3Ma03gY2icOjZaQ31ksiDxkM"
-DATA_DIR          = _BASE / os.getenv("DATA_DIR", "data")
-LAST_RESULTS_FILE = DATA_DIR / "last_results.json"
+SLACK_WEBHOOK_URL   = os.getenv("SLACK_WEBHOOK_URL", "")
+GOOGLE_CREDS_PATH   = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", str(_BASE / "credentials.json")))
+SPREADSHEET_ID      = "1yedWS5jNzsd7C0W6f6t3Ma03gY2icOjZaQ31ksiDxkM"
+DRIVE_FOLDER_ID     = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "14sSA2L8Uv1_Nhhhpz3acBQ7FL4tgNXTq")
+DATA_DIR            = _BASE / os.getenv("DATA_DIR", "data")
+LAST_RESULTS_FILE   = DATA_DIR / "last_results.json"
 
 
 # ── 유틸 ──────────────────────────────────────────────────────────────────────
@@ -167,6 +170,67 @@ async def capture_all(cards: list, folder: Path):
         await browser.close()
 
 
+# ── Google Drive ──────────────────────────────────────────────────────────────
+_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png",  ".webp": "image/webp",
+}
+
+def _drive_service():
+    creds = Credentials.from_service_account_file(
+        str(GOOGLE_CREDS_PATH),
+        scopes=["https://www.googleapis.com/auth/drive"],
+    )
+    return build("drive", "v3", credentials=creds)
+
+
+def upload_to_drive(folder: Path, date_str: str):
+    """날짜 폴더를 Drive에 생성하고 folder 내 파일을 모두 업로드"""
+    if not GOOGLE_CREDS_PATH.exists():
+        log(f"  [Drive] credentials 없음 — 건너뜀")
+        return None
+
+    files = sorted(folder.glob("*"))
+    if not files:
+        log("  [Drive] 업로드할 파일 없음")
+        return None
+
+    try:
+        service = _drive_service()
+
+        # 날짜 이름으로 하위 폴더 생성
+        folder_meta = {
+            "name": date_str,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [DRIVE_FOLDER_ID],
+        }
+        drive_folder = service.files().create(
+            body=folder_meta, fields="id,webViewLink", supportsAllDrives=True
+        ).execute()
+        folder_id   = drive_folder["id"]
+        folder_link = drive_folder.get("webViewLink", "")
+        log(f"  [Drive] 폴더 생성: {date_str} → {folder_link}")
+
+        # 파일 업로드
+        for f in files:
+            mime = _MIME.get(f.suffix.lower(), "application/octet-stream")
+            media = MediaFileUpload(str(f), mimetype=mime, resumable=False)
+            service.files().create(
+                body={"name": f.name, "parents": [folder_id]},
+                media_body=media,
+                fields="id",
+                supportsAllDrives=True,
+            ).execute()
+            log(f"  [Drive] 업로드: {f.name}")
+
+        log(f"  [Drive] 총 {len(files)}개 파일 업로드 완료")
+        return folder_link
+
+    except Exception as e:
+        log(f"  [Drive] 오류: {e}")
+        return None
+
+
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 def update_sheets(cards: list, changes: dict, date_str: str):
     if not GOOGLE_CREDS_PATH.exists():
@@ -284,7 +348,7 @@ def _card_block(card: dict, label: str, diff: list | None = None, old_card: dict
     return [section, {"type": "divider"}]
 
 
-def send_slack(changes: dict, cards: list, date_str: str, folder: Path):
+def send_slack(changes: dict, cards: list, date_str: str, folder: Path, drive_link: str | None = None):
     if not SLACK_WEBHOOK_URL:
         log("  [Slack] SLACK_WEBHOOK_URL 미설정 — 건너뜀")
         return
@@ -343,17 +407,16 @@ def send_slack(changes: dict, cards: list, date_str: str, folder: Path):
             )
 
     # ── 푸터 ──────────────────────────────────────────────────────────────────
+    footer_parts = []
+    if drive_link:
+        footer_parts.append(f"<{drive_link}|📁 Drive 폴더 ({date_str})>")
+    else:
+        footer_parts.append(f"📁 스크린샷: `{folder.resolve()}`")
+    footer_parts.append(f"<https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}|📊 Sheets 바로가기>")
+
     blocks.append({
         "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": (
-                    f"📁 스크린샷: `{folder.resolve()}`  |  "
-                    f"<https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}|📊 Sheets 바로가기>"
-                ),
-            }
-        ],
+        "elements": [{"type": "mrkdwn", "text": "  |  ".join(footer_parts)}],
     })
 
     # Slack API 한 메시지 최대 블록 수 50개 제한 처리
@@ -436,12 +499,17 @@ async def main():
     log(f"[4] 스크린샷 저장 → {folder}")
     await capture_all(current, folder)
 
-    # 5. Sheets / Slack
-    log("[5] Google Sheets 업데이트...")
+    # 5. Google Drive 업로드
+    log("[5] Google Drive 업로드...")
+    drive_link = upload_to_drive(folder, date_str)
+
+    # 6. Sheets
+    log("[6] Google Sheets 업데이트...")
     update_sheets(current, changes, date_str)
 
-    log("[6] Slack 알림 전송...")
-    send_slack(changes, current, date_str, folder)
+    # 7. Slack
+    log("[7] Slack 알림 전송...")
+    send_slack(changes, current, date_str, folder, drive_link)
 
     # 6. 기준 데이터 저장
     LAST_RESULTS_FILE.write_text(

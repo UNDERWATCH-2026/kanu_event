@@ -1,9 +1,9 @@
 name: Nespresso 이벤트 카드 모니터
 
 on:
-  schedule:
-    - cron: '0 0 * * *'   # 매일 오전 9시 KST (= 00:00 UTC, UTC+9)
-  workflow_dispatch:        # GitHub Actions 페이지에서 수동 실행 버튼
+  # schedule:
+  #   - cron: '0 0 * * *'   # 로컬 Task Scheduler로 대체 (비활성화)
+  workflow_dispatch:        # GitHub Actions 페이지에서 수동 실행 버튼 (필요시 사용)
 
 jobs:
   monitor:
@@ -39,21 +39,12 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GOOGLE_CREDENTIALS_PATH: credentials.json
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           DATA_DIR: data
           HEADLESS: "true"
         run: python nespresso_monitor.py
 
-      # ── 6. 스크린샷 아티팩트 업로드 (30일 보관) ──────────────────────────
-      - name: 스크린샷 업로드
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-${{ github.run_id }}-${{ github.run_attempt }}
-          path: data/
-          if-no-files-found: ignore
-          retention-days: 30
-
-      # ── 7. last_results.json 커밋 (다음 실행 비교용) ─────────────────────
+      # ── 6. last_results.json 커밋 (다음 실행 비교용) ─────────────────────
       - name: 결과 커밋
         run: |
           git config user.name "github-actions[bot]"
